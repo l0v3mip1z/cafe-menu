@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Меню — Поляна</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bitter:wght@600;700&family=Onest:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #EDF0E8;
+    --ink: #1B2A22;
+    --muted: #5C6B62;
+    --pine: #1F4D3A;
+    --line: #A9B5AB;
+    --chip: #DDE4D8;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; scroll-padding-top: 64px; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 17px/1.5 "Onest", system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { background: var(--pine); color: #fff; padding: 40px 20px 32px; }
+  header h1 { margin: 0 auto; max-width: 720px; font: 700 clamp(34px, 8vw, 56px)/1.05 "Bitter", Georgia, serif; }
+  header p { margin: 8px auto 0; max-width: 720px; color: #C9D8CE; }
+  nav { position: sticky; top: 0; z-index: 5; background: var(--bg); border-bottom: 1px solid var(--line);
+        display: flex; gap: 8px; overflow-x: auto; padding: 10px 20px; scrollbar-width: none; }
+  nav::-webkit-scrollbar { display: none; }
+  nav a { flex: none; padding: 6px 14px; border-radius: 999px; background: var(--chip);
+          color: var(--ink); text-decoration: none; font-weight: 500; }
+  nav a:hover, nav a:focus-visible { background: var(--pine); color: #fff; outline: none; }
+  main { max-width: 720px; margin: 0 auto; padding: 8px 20px 64px; }
+  h2 { margin: 40px 0 12px; font: 700 28px/1.2 "Bitter", Georgia, serif; color: var(--pine); }
+  .item { margin: 0 0 18px; }
+  .row { display: flex; align-items: baseline; gap: 8px; }
+  .name { font-weight: 500; }
+  .dots { flex: 1; border-bottom: 2px dotted var(--line); transform: translateY(-4px); min-width: 12px; }
+  .price { font: 700 18px "Bitter", Georgia, serif; white-space: nowrap; }
+  .desc { margin: 2px 0 0; color: var(--muted); font-size: 15px; }
+  .msg { margin: 48px 0; color: var(--muted); }
+</style>
+</head>
+<body>
+<header>
+  <h1 id="cafe-name">Поляна</h1>
+  <p>Меню и цены</p>
+</header>
+<nav id="nav" aria-label="Разделы меню"></nav>
+<main id="menu"><p class="msg">Загружаем меню…</p></main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script>
+  // Настройки
+  const CAFE_NAME = "Поляна";        // название в шапке
+  const MENU_FILE = "menu.xlsx";     // файл с ценами (лежит рядом с index.html)
+
+  document.getElementById("cafe-name").textContent = CAFE_NAME;
+  document.title = "Меню — " + CAFE_NAME;
+
+  function el(tag, cls, text) {
+    const e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text !== undefined) e.textContent = text;
+    return e;
+  }
+
+  // Ищем значение по названию столбца (без учёта регистра и пробелов)
+  function pick(row, key) {
+    for (const k in row) if (k.trim().toLowerCase() === key) return row[k];
+    return "";
+  }
+
+  function formatPrice(v) {
+    if (typeof v === "number") return v.toLocaleString("ru-RU") + " ₽";
+    return String(v).trim();
+  }
+
+  async function loadMenu() {
+    const main = document.getElementById("menu");
+    const nav = document.getElementById("nav");
+    try {
+      // ?v=... — чтобы после обновления таблицы сразу показывались новые цены
+      const res = await fetch(MENU_FILE + "?v=" + Date.now());
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      const wb = XLSX.read(await res.arrayBuffer(), { type: "array" });
+      const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: "" });
+
+      const groups = new Map();
+      for (const r of rows) {
+        const name = String(pick(r, "название")).trim();
+        if (!name) continue;
+        const cat = String(pick(r, "категория")).trim() || "Другое";
+        if (!groups.has(cat)) groups.set(cat, []);
+        groups.get(cat).push({
+          name,
+          desc: String(pick(r, "описание")).trim(),
+          weight: String(pick(r, "вес")).trim(),
+          price: formatPrice(pick(r, "цена"))
+        });
+      }
+      if (!groups.size) throw new Error("empty");
+
+      main.textContent = "";
+      nav.textContent = "";
+      let i = 0;
+      for (const [cat, items] of groups) {
+        const id = "cat-" + i++;
+        const a = el("a", "", cat); a.href = "#" + id; nav.append(a);
+        const h = el("h2", "", cat); h.id = id; main.append(h);
+        for (const it of items) {
+          const box = el("div", "item");
+          const row = el("div", "row");
+          row.append(
+            el("span", "name", it.weight ? it.name + ", " + it.weight : it.name),
+            el("span", "dots"),
+            el("span", "price", it.price)
+          );
+          box.append(row);
+          if (it.desc) box.append(el("p", "desc", it.desc));
+          main.append(box);
+        }
+      }
+    } catch (e) {
+      main.textContent = "";
+      main.append(el("p", "msg", "Не удалось загрузить меню. Попробуйте обновить страницу позже."));
+      console.error("Меню не загрузилось:", e);
+    }
+  }
+  loadMenu();
+</script>
+</body>
+</html>
