@@ -37,13 +37,14 @@
   .dots { flex: 1; border-bottom: 2px dotted var(--line); transform: translateY(-4px); min-width: 12px; }
   .price { font: 700 18px "Bitter", Georgia, serif; white-space: nowrap; }
   .desc { margin: 2px 0 0; color: var(--muted); font-size: 15px; }
+  .note { margin: -4px 0 18px; color: var(--muted); font-size: 15px; font-style: italic; }
   .msg { margin: 48px 0; color: var(--muted); }
 </style>
 </head>
 <body>
 <header>
   <h1 id="cafe-name">Поляна</h1>
-  <p>Меню и цены. Наличие уточняйте на кассе.</p>
+  <p>Меню и цены</p>
 </header>
 <nav id="nav" aria-label="Разделы меню"></nav>
 <main id="menu"><p class="msg">Загружаем меню…</p></main>
@@ -75,6 +76,41 @@
     return String(v).trim();
   }
 
+
+  // Показ блюд по дням недели
+  const TIMEZONE = "";   // например "Europe/Moscow"; пусто — по времени на устройстве гостя
+  const DAY_NAMES = ["понедельник", "вторник", "среда", "четверг", "пятница", "суббота", "воскресенье"];
+  const DAY_KEYS = { "по": 0, "пн": 0, "вт": 1, "ср": 2, "че": 3, "чт": 3, "пя": 4, "пт": 4, "су": 5, "сб": 5, "во": 6, "вс": 6 };
+
+  function todayIndex() {
+    const opts = { weekday: "short" };
+    if (TIMEZONE) opts.timeZone = TIMEZONE;
+    const w = new Intl.DateTimeFormat("en-US", opts).format(new Date());
+    return ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].indexOf(w);
+  }
+  const TODAY = todayIndex();
+  if (TODAY >= 0) {
+    document.querySelector("header p").textContent = "Меню и цены · сегодня " + DAY_NAMES[TODAY];
+  }
+
+  // Пусто — каждый день. Примеры: "Пн, Ср, Пт" · "Пн-Пт" · "Сб-Вс"
+  function shownToday(spec) {
+    spec = String(spec).toLowerCase().trim().replace(/\s*[-–—]\s*/g, "-");
+    if (!spec || TODAY < 0 || spec === "все" || spec === "ежедневно") return true;
+    let recognized = false;
+    for (const part of spec.split(/[,;\s]+/)) {
+      const [a, b] = part.split("-").map(x => DAY_KEYS[x.slice(0, 2)]);
+      if (a === undefined) continue;
+      recognized = true;
+      if (b === undefined) { if (a === TODAY) return true; continue; }
+      for (let d = a; ; d = (d + 1) % 7) {      // диапазон, в том числе через воскресенье: Сб-Пн
+        if (d === TODAY) return true;
+        if (d === b) break;
+      }
+    }
+    return !recognized;   // если запись не разобрана (опечатка) — показываем блюдо, чтобы не потерять его
+  }
+
   async function loadMenu() {
     const main = document.getElementById("menu");
     const nav = document.getElementById("nav");
@@ -89,13 +125,15 @@
       for (const r of rows) {
         const name = String(pick(r, "название")).trim();
         if (!name) continue;
+        if (!shownToday(pick(r, "дни"))) continue;
         const cat = String(pick(r, "категория")).trim() || "Другое";
         if (!groups.has(cat)) groups.set(cat, []);
         groups.get(cat).push({
           name,
           desc: String(pick(r, "описание")).trim(),
           weight: String(pick(r, "вес")).trim(),
-          price: formatPrice(pick(r, "цена"))
+          price: formatPrice(pick(r, "цена")),
+          note: String(pick(r, "цена")).trim() === ""   // нет цены — это подпись
         });
       }
       if (!groups.size) throw new Error("empty");
@@ -108,6 +146,7 @@
         const a = el("a", "", cat); a.href = "#" + id; nav.append(a);
         const h = el("h2", "", cat); h.id = id; main.append(h);
         for (const it of items) {
+          if (it.note) { main.append(el("p", "note", it.name)); continue; }
           const box = el("div", "item");
           const row = el("div", "row");
           row.append(
